@@ -1,2 +1,6 @@
 NotSnakePictures/*
 SnakePictures/*
+__pycache__/*
+FirstRoundTraining/*
+SecondRoundTraining/*
+*.hdf5
