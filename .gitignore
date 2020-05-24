@@ -3,4 +3,8 @@ SnakePictures/*
 __pycache__/*
 FirstRoundTraining/*
 SecondRoundTraining/*
+cifar*
+Initial/*
 *.hdf5
+Imagenet/*
+ImagenetImages/*
