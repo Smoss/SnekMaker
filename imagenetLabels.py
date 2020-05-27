@@ -1008,3 +1008,14 @@ imagenet_labels = {
 	999: ['carbonara', 'n07831146'],
 	1000: ['dumbbell', 'n03255030']
 }
+
+imagenet_original_labels = {val[1]: val[0] for val in imagenet_labels.values()}
+print("There are 3 reapeating labels, crane and maillot, will need to fix if generalizing")
+# print(len(imagenet_original_labels.keys()))
+# print(len(imagenet_labels.keys()))
+# from collections import defaultdict
+# imagenet_count = defaultdict(int)
+# for val in imagenet_labels.values():
+#     imagenet_count[val[0]] += 1
+#     if imagenet_count[val[0]] > 1:
+#         print(val)

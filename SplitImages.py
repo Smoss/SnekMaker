@@ -23,7 +23,7 @@ def iterateOverDir(first_dir, second_dir, origin_dir, target_class):
         copy_dir = first_dir
         if x % 10 == 0:
             copy_dir = second_dir
-        shutil.copyfile(
+        shutil.move(
             '{}/{}'.format(origin_dir, file),
             '{}{}/{}'.format(copy_dir, target_class, file)
         )

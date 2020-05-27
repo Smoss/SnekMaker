@@ -8,3 +8,10 @@ Initial/*
 *.hdf5
 Imagenet/*
 ImagenetImages/*
+Models/*
+BackupModels/*
+Cifar100Data/*
+ILSVRC2012_img_train/*
+.idea/*
+Squares/*
+./classes_*.csv

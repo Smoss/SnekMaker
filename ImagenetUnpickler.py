@@ -4,18 +4,18 @@ import pickle
 import numpy
 import itertools
 import argparse
-from imagenet_labels import imagenet_labels
+from imagenetLabels import imagenet_labels
 from PIL import Image
-cifar_10_dir = './Cifar10Data'
-initial_dir = './NotSnakePictures'
+imagenet_dir = './ImageNet'
+initial_dir = './ImageNetImages'
 def unpickle(file):
     fo = open(file, 'rb')
     dict = pickle.load(fo, encoding='bytes')
     fo.close()
     return dict
 
-def decodeDir(directory=cifar_10_dir, target_dir=initial_dir):
-    # labels = unpickle(cifar_10_dir + '/batches.meta')
+def decodeDir(directory=imagenet_dir, target_dir=initial_dir):
+    # labels = unpickle(imagenet_dir + '/batches.meta')
     
     files = [x for x in os.listdir(directory) if (x.startswith('data') or x.startswith('test') or x.startswith('train'))]
     x = 0
