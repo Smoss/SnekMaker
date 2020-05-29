@@ -243,6 +243,7 @@ def trainSnekMaker(
             class_mode='binary',
             validate_filenames=False
         )
+        # print(len(validation_generator))
         
         train_model.layers[0].trainable = False
         train_model.layers[1].trainable = True
