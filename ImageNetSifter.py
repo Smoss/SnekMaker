@@ -3,6 +3,7 @@ import argparse
 import shutil
 import csv
 import random
+import imagenetLabels
 imagenet_dir = './ImageNetImages'
 snake_labels = [
     'Indian_cobra',
@@ -24,32 +25,28 @@ snake_labels = [
 ]
 
 def decodeDir(
-        directory=imagenet_dir,
-        only_snakes=False
+        directory=imagenet_dir
     ):
     train_csv_rows = []
     validate_csv_rows = []
-    # labels = unpickle(cifar_10_dir + '/batches.meta')
-    labels = [x for x in os.listdir(directory)]
-    for label in labels:
+    for label in os.listdir(directory):
         validator_splitter = 0
         from_dir = '{}/{}'.format(directory, label)
         for file in os.listdir(from_dir):
             from_path = '{}/{}'.format(from_dir, file)
             abs_path = os.path.abspath(from_path)
             is_snake = label in snake_labels
-            target_class = '[1]' if is_snake else '[0]'
+            target_class = imagenetLabels.imagenet_label_values[label]
             row_dict = {'file': abs_path, 'snake': target_class}
-            if not only_snakes or (is_snake or label.startswith('fake_snake')):
-                if validator_splitter % 10 == 0:
-                    validate_csv_rows.append(row_dict)
-                else:
-                    train_csv_rows.append(row_dict)
-                validator_splitter += 1
-        # print('Finished handling', label)
+            if validator_splitter % 10 == 0:
+                validate_csv_rows.append(row_dict)
+            else:
+                train_csv_rows.append(row_dict)
+            validator_splitter += 1
+        print('Finished handling', label)
     headers = ['file', 'snake']
-    # print(len(train_csv_rows))
-    # print(len(validate_csv_rows))
+    print(len(train_csv_rows))
+    print(len(validate_csv_rows))
     random.shuffle(train_csv_rows)
     random.shuffle(validate_csv_rows)
     with open('classes_train.csv', 'w') as train_file:       
@@ -81,6 +78,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     decodeDir(
-        args.directory,
-        only_snakes=args.only_snakes
+        args.directory
     )

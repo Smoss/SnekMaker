@@ -14,6 +14,7 @@ from IPython import display
 from tqdm import tqdm
 import math
 import random
+import argparse
 
 BUFFER_SIZE = 60000
 BATCH_SIZE = 1000
@@ -22,10 +23,8 @@ cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 EPOCHS = 500
 noise_dim = 100
 num_examples_to_generate = 16
-# generator_optimizer = tf.keras.optimizers.Adam(beta_1=.5)
-# discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=.5)
-generator_optimizer = tf.keras.optimizers.SGD(.1,momentum=.5, nesterov=True)
-discriminator_optimizer = tf.keras.optimizers.SGD(.02, momentum=.5, nesterov=True)
+generator_optimizer = tf.keras.optimizers.SGD(momentum=.5, nesterov=True)
+discriminator_optimizer = tf.keras.optimizers.SGD(.0002,momentum=.5, nesterov=True)
 
 # We will reuse this seed overtime (so it's easier)
 # to visualize progress in the animated GIF)
@@ -250,6 +249,24 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Create new mnist images.')
+    parser.add_argument(
+        '-o',
+        '--optimizer',
+        help='optimizier to user',
+        default='SGD'
+    )
+    args = parser.parse_args()
+    if args.optimizer == 'adam':
+        print('Using Adam optimizer')
+        generator_optimizer = tf.keras.optimizers.Adam(beta_1=.5)
+        discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=.5)
+    elif args.optimizer == 'nadam':
+        print('Using Nadam optimizer')
+        generator_optimizer = tf.keras.optimizers.Nadam(beta_1=.5)
+        discriminator_optimizer = tf.keras.optimizers.Nadam(2e-4, beta_1=.5)
+    else:
+        print('Using SGD optimizer')
     main()
 
 

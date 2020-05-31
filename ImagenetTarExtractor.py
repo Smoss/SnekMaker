@@ -19,7 +19,7 @@ def decodeDir(directory=imagenet_dir, target_dir=initial_dir):
     for tarball_path in tarballs:
         file = '{}/{}'.format(directory, tarball_path)
         human_readable_label = imagenet_original_labels[tarball_path[:-4]]
-        final_target = '{}/{}'.format(target_dir, human_readable_label)
+        final_target = '{}/{}_{}'.format(target_dir, tarball_path[:-4], human_readable_label)
         if not os.path.exists(final_target):
             os.makedirs(final_target)
         with tarfile.open(file) as tarball:

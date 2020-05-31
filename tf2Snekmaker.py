@@ -3,6 +3,8 @@
 Created on Sat May 16 00:25:28 2020
 
 @author: smoss
+
+This is a gan inspired by Big GAN and based on the implementation here https://github.com/taki0112/BigGAN-Tensorflow
 """
 
 import tensorflow as tf
@@ -32,6 +34,8 @@ import argparse
 import pandas as pd
 import ImageNetSifter
 import uuid
+import CustomLayers
+import random
 
 snake_val = 1
 not_snake_val = 0
@@ -42,8 +46,8 @@ num_preprocess_threads = 24
 training_batch_size = 200
 generation_batch_size = training_batch_size
 training_epochs = 1
-img_size = 96
-num_params = 512
+IMG_SIZE = 128
+NUM_PARAMS = 128
 inc_name = 'Xception'
 first_layer_dim = 10
 color_channels = 3
@@ -55,109 +59,157 @@ model_folder = './Models'
 model_name = inc_name + 'Checkpoint'
 pre_name = 'Pre' + model_name
 # num_pics = len(os.listdir(directory + "\\Snakes"))
+generator_optimizer = tf.keras.optimizers.SGD(momentum=.5, nesterov=True)
+discriminator_optimizer = tf.keras.optimizers.SGD(.0002,momentum=.5, nesterov=True)
+CHANNELS = 16 * 64
+INIT_SIZE = (4, 4, 1)
 
 @tf.autograph.experimental.do_not_convert
 def initializeSnakeIdentifier(
         train_datagen,
         validation_datagen
     ):
-    print('Starting from Scratch')
-    
-    train_df = pd.read_csv('./classes_train.csv')
-    validate_df = pd.read_csv('./classes_validate.csv')
+    pass
+    # print('Starting from Scratch')
+    #
+    # train_df = pd.read_csv('./classes_train.csv')
+    # validate_df = pd.read_csv('./classes_validate.csv')
+    #
+    # train_generator = train_datagen.flow_from_dataframe(
+    #     dataframe=train_df,
+    #     x_col='file',
+    #     y_col='snake',
+    #     target_size=(img_size, img_size),
+    #     batch_size=training_batch_size,
+    #     class_mode='binary',
+    #     validate_filenames=False
+    # )
+    #
+    # validation_generator = validation_datagen.flow_from_dataframe(
+    #     dataframe=validate_df,
+    #     x_col='file',
+    #     y_col='snake',
+    #     target_size=(img_size, img_size),
+    #     batch_size=training_batch_size,
+    #     class_mode='binary',
+    #     validate_filenames=False
+    # )
+    # # build the Xception network
+    # model = Xception(
+    #     weights='imagenet',
+    #     include_top=False,
+    #     input_shape=(img_size, img_size, 3)
+    # )
+    # # model.save_weights(model_folder + '/' + pre_name + "PristineNoWeight.hdf5")
+    #
+    # # set everything except the last separable convolution block to be untrainable
+    # for layer in model.layers[:-4]:
+    #     layer.trainable = False
+    # #model = load_model(pre_name + ".hdf5")
+    # print('Model loaded.')
+    # # build a classifier model to put on top of the convolutional model
+    # top_model = GlobalAveragePooling2D()(model.output)
+    # top_model = Dense(512, activation='relu')(top_model)
+    # top_model = Dropout(0.5)(top_model)
+    # top_model = Dense(1, activation='sigmoid')(top_model)
+    #
+    # #model =  Model(inputs=[main_input], outputs=[top_model])
+    #
+    # # add the model on top of the convolutional base
+    # model = Model(inputs = model.input, outputs=top_model)
+    # # for layer in model.layers:
+    # #     print(layer.dtype)
+    # # model.summary()
+    #
+    # # compile the model with a SGD/momentum optimizer
+    # # and a very slow learning rate.
+    # model.compile(
+    #     loss='binary_crossentropy',
+    #     optimizer=optimizers.Adam(epsilon=K.epsilon()),
+    #     metrics=['accuracy']
+    # )
+    #
+    # # fine-tune the model
+    # model.fit(
+    #     train_generator,
+    #     steps_per_epoch=NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN // training_batch_size,
+    #     epochs=training_epochs,
+    #     validation_data=validation_generator,
+    #     validation_steps=NUM_EXAMPLES_PER_EPOCH_FOR_EVAL // training_batch_size,
+    #     callbacks=[ModelCheckpoint(model_folder + '/' + model_name + '.hdf5', save_best_only=True, mode = 'min')]
+    # )
+    # print("Trained Top")
+    # # model.predict(validation_generator)
 
-    train_generator = train_datagen.flow_from_dataframe(
-        dataframe=train_df,
-        x_col='file',
-        y_col='snake',
-        target_size=(img_size, img_size),
-        batch_size=training_batch_size,
-        class_mode='binary',
-        validate_filenames=False
-    )
+def saveFakes(images, parent='Fakes', folder='tryout'):
+        output_folder = '{}/{}'.format(parent, folder)
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
 
-    validation_generator = validation_datagen.flow_from_dataframe(
-        dataframe=validate_df,
-        x_col='file',
-        y_col='snake',
-        target_size=(img_size, img_size),
-        batch_size=training_batch_size,
-        class_mode='binary',
-        validate_filenames=False
-    )
-    # build the Xception network
-    model = Xception(
-        weights='imagenet',
-        include_top=False,
-        input_shape=(img_size, img_size, 3)
-    )
-    # model.save_weights(model_folder + '/' + pre_name + "PristineNoWeight.hdf5")
+        for y in range(0, len(images)):
+            array_to_img(images[y]).save('{}/fake_{}.jpeg'.format(output_folder, y))
 
-    # set everything except the last separable convolution block to be untrainable
-    for layer in model.layers[:-4]:
-        layer.trainable = False
-    #model = load_model(pre_name + ".hdf5")
-    print('Model loaded.')
-    # build a classifier model to put on top of the convolutional model
-    top_model = GlobalAveragePooling2D()(model.output)
-    top_model = Dense(512, activation='relu')(top_model)
-    top_model = Dropout(0.5)(top_model)
-    top_model = Dense(1, activation='sigmoid')(top_model)
-
-    #model =  Model(inputs=[main_input], outputs=[top_model])
-
-    # add the model on top of the convolutional base
-    model = Model(inputs = model.input, outputs=top_model)
-    # for layer in model.layers:
-    #     print(layer.dtype)
-    # model.summary()
-
-    # compile the model with a SGD/momentum optimizer
-    # and a very slow learning rate.
-    model.compile(
-        loss='binary_crossentropy',
-        optimizer=optimizers.Adam(epsilon=K.epsilon()),
-        metrics=['accuracy']
-    )
-
-    # fine-tune the model
-    model.fit(
-        train_generator,
-        steps_per_epoch=NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN // training_batch_size,
-        epochs=training_epochs,
-        validation_data=validation_generator,
-        validation_steps=NUM_EXAMPLES_PER_EPOCH_FOR_EVAL // training_batch_size,
-        callbacks=[ModelCheckpoint(model_folder + '/' + model_name + '.hdf5', save_best_only=True, mode = 'min')]
-    )
-    print("Trained Top")
-    # model.predict(validation_generator)
+def generate_fake_images(count=generation_batch_size, noise_dim=NUM_PARAMS, n_classes=1000):
+    noise = tf.random.normal([count, noise_dim])
+    categories = tf.constant([random.randint(0, n_classes - 1) for _ in range(count)])
+    return noise, categories
 
 @tf.autograph.experimental.do_not_convert
-def createSnekMaker():
-    main_input = Input(shape=(num_params,), dtype='float32', name='main_input')
-    x = Dense(num_params * first_layer_dim * first_layer_dim, activation='relu')(main_input)
-    #x = Dropout(.4)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    x = Reshape((first_layer_dim, first_layer_dim, num_params))(x)
-    x = Conv2DTranspose(256, kernel_size = 4, strides = 2)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    x = layers.LeakyReLU()(x)
-    x = Conv2DTranspose(128, kernel_size = 4, strides = 2)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    x = layers.LeakyReLU()(x)
-    x = Conv2DTranspose(64, kernel_size = 4, strides = 2)(x)
-    # x = Conv2DTranspose(64, kernel_size = 4, strides = 1)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    x = layers.LeakyReLU()(x)
-    x = Conv2DTranspose(32, kernel_size = 3, strides = 1)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    x = layers.LeakyReLU()(x)
-    x = Conv2DTranspose(16, kernel_size = 3, strides = 1)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    x = layers.LeakyReLU()(x)
-    New_img = Conv2D(color_channels, kernel_size = 3, activation=tanh)(x)
-    gen_model = Model(main_input, New_img)
+def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, z_dim=128, init_size=INIT_SIZE):
+    base_size = num_params // 6
+    split_rem = num_params % base_size
+    print(num_params % base_size, num_params, base_size)
+    if split_rem == 0:
+        noise_split_list = [base_size] * 6
+    else:
+        noise_split_list = [base_size] * 5 + [split_rem + base_size]
+
+    print(noise_split_list)
+    curr_channels = channels
+    noise_in = layers.Input((num_params,))
+    noise_t = CustomLayers.SplitLayer(noise_split_list)(noise_in)
+    embedding_in = layers.Input(shape=(1,))
+    embedding_layer = CustomLayers.EmbeddingBlock(INIT_SIZE, 1000, num_params)(embedding_in)
+
+    gen = layers.Dense(init_size[0] * init_size[1] * curr_channels, use_bias=False)(noise_t[0])
+    gen = layers.BatchNormalization()(gen)
+    gen = layers.LeakyReLU()(gen)
+
+    gen = layers.Reshape((init_size[0], init_size[1], curr_channels))(gen)
+
+    gen = layers.Concatenate()([gen, embedding_layer])
+    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock1')([gen, noise_t[1]])
+    curr_channels = curr_channels // 2
+
+    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock2')([gen, noise_t[2]])
+    curr_channels = curr_channels // 2
+
+    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock3')([gen, noise_t[3]])
+    curr_channels = curr_channels // 2
+
+    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock4')([gen, noise_t[4]])
+
+    gen = CustomLayers.SoftAttentionMax(curr_channels)(gen)
+    curr_channels = curr_channels // 2
+
+    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock5')([gen, noise_t[5]])
+
+    gen = layers.BatchNormalization(momentum=.9)(gen)
+
+    gen = layers.LeakyReLU()(gen)
+
+    gen = layers.ZeroPadding2D()(gen)
+    new_img = CustomLayers.conv2D(color_channels, kernel_size = 3, activation=tanh)(gen)
+    gen_model = Model([noise_in, embedding_in], new_img)
     gen_model.summary()
+    noise, cats = generate_fake_images()
+    import time
+    K.clear_session()
+    start = time.time()
+    baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
+    print('Time to predict is {} sec'.format(time.time() - start))
+    print(baby_noise.shape)
+    saveFakes(baby_noise)
     return gen_model
 
 @tf.autograph.experimental.do_not_convert
@@ -169,95 +221,96 @@ def trainSnekMaker(
         check_model=None,
         train_model=None
     ):
-    if not train_model:
-        train_model = Sequential()
-        train_model.add(gen_model)
-        train_model.add(check_model)
-    if check_model:
-        check_model.summary()
-    if gen_model:
-        gen_model.summary()
-    train_model.summary()
-    train_model.compile(
-        loss='binary_crossentropy',
-        optimizer=optimizers.Adam(epsilon=K.epsilon()),
-        metrics=['accuracy']
-    )
-    for x in range(0, epochs):
-        gan_uuid = uuid.uuid4()
-        train_model.layers[0].trainable = True
-        train_model.layers[1].trainable = False
-
-        input_values = np.random.random_sample((num_samples, num_params))
-        train_model.fit(
-            input_values,
-            np.ones(num_samples),
-            batch_size=generation_batch_size,
-            callbacks=[ModelCheckpoint('{}/SnekTrainerWhole.hdf5'.format(model_folder))],
-            epochs=(x+1),
-            initial_epoch=x
-        )
-        
-        train_model.layers[0].save_weights(
-            '{}/SnekGAN_{}.hdf5'.format(model_folder, gan_uuid),
-            overwrite=True
-        )
-
-        snek_gen_model = train_model.layers[0]
-        fake_snakes = input_values[:1000]
-        output_squares = snek_gen_model.predict(
-            input_values,
-            batch_size=generation_batch_size,
-            callbacks=[ProgbarLogger()]
-        )
-        output_folder = '{}/fake_snakes_{}'.format(ImageNetSifter.imagenet_dir, gan_uuid)
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
-        
-        for y in range(0, len(output_squares)):
-            array_to_img(output_squares[y]).save('{}/snake_{}.jpeg'.format(output_folder, y))
-        
-        test_values = input_values[-5:]
-        print(train_model.predict(test_values))
-        num_training_samples, num_validation_samples = ImageNetSifter.decodeDir(only_snakes=True)
-
-        train_df = pd.read_csv('./classes_train.csv')
-        validate_df = pd.read_csv('./classes_validate.csv')
-        
-        train_generator = train_datagen.flow_from_dataframe(
-            dataframe=train_df,
-            x_col='file',
-            y_col='snake',
-            target_size=(img_size, img_size),
-            batch_size=generation_batch_size,
-            class_mode='binary',
-            validate_filenames=False
-        )
-        
-        validation_generator = train_datagen.flow_from_dataframe(
-            dataframe=validate_df,
-            x_col='file',
-            y_col='snake',
-            target_size=(img_size, img_size),
-            batch_size=generation_batch_size,
-            class_mode='binary',
-            validate_filenames=False
-        )
-        # print(len(validation_generator))
-        
-        train_model.layers[0].trainable = False
-        train_model.layers[1].trainable = True
-        # num_layers_id = len(check_model.layers)
-        # train_model.summary()
-        train_model.layers[-1].fit(
-            validation_generator,
-            # steps_per_epoch=1,
-            steps_per_epoch=num_validation_samples // generation_batch_size,
-            epochs=int(x+1),
-            callbacks=[ModelCheckpoint('{}/CheckerTry_{}.hdf5'.format(model_folder, gan_uuid), save_best_only=False, mode = 'min')],
-            initial_epoch = int(x)
-        )
-        print(train_model.predict(test_values))
+    pass
+    # if not train_model:
+    #     train_model = Sequential()
+    #     train_model.add(gen_model)
+    #     train_model.add(check_model)
+    # if check_model:
+    #     check_model.summary()
+    # if gen_model:
+    #     gen_model.summary()
+    # train_model.summary()
+    # train_model.compile(
+    #     loss='binary_crossentropy',
+    #     optimizer=optimizers.Adam(epsilon=K.epsilon()),
+    #     metrics=['accuracy']
+    # )
+    # for x in range(0, epochs):
+    #     gan_uuid = uuid.uuid4()
+    #     train_model.layers[0].trainable = True
+    #     train_model.layers[1].trainable = False
+    #
+    #     input_values = np.random.random_sample((num_samples, num_params))
+    #     train_model.fit(
+    #         input_values,
+    #         np.ones(num_samples),
+    #         batch_size=generation_batch_size,
+    #         callbacks=[ModelCheckpoint('{}/SnekTrainerWhole.hdf5'.format(model_folder))],
+    #         epochs=(x+1),
+    #         initial_epoch=x
+    #     )
+    #
+    #     train_model.layers[0].save_weights(
+    #         '{}/SnekGAN_{}.hdf5'.format(model_folder, gan_uuid),
+    #         overwrite=True
+    #     )
+    #
+    #     snek_gen_model = train_model.layers[0]
+    #     fake_snakes = input_values[:1000]
+    #     output_squares = snek_gen_model.predict(
+    #         input_values,
+    #         batch_size=generation_batch_size,
+    #         callbacks=[ProgbarLogger()]
+    #     )
+    #     output_folder = '{}/fake_snakes_{}'.format(ImageNetSifter.imagenet_dir, gan_uuid)
+    #     if not os.path.exists(output_folder):
+    #         os.makedirs(output_folder)
+    #
+    #     for y in range(0, len(output_squares)):
+    #         array_to_img(output_squares[y]).save('{}/snake_{}.jpeg'.format(output_folder, y))
+    #
+    #     test_values = input_values[-5:]
+    #     print(train_model.predict(test_values))
+    #     num_training_samples, num_validation_samples = ImageNetSifter.decodeDir(only_snakes=True)
+    #
+    #     train_df = pd.read_csv('./classes_train.csv')
+    #     validate_df = pd.read_csv('./classes_validate.csv')
+    #
+    #     train_generator = train_datagen.flow_from_dataframe(
+    #         dataframe=train_df,
+    #         x_col='file',
+    #         y_col='snake',
+    #         target_size=(img_size, img_size),
+    #         batch_size=generation_batch_size,
+    #         class_mode='binary',
+    #         validate_filenames=False
+    #     )
+    #
+    #     validation_generator = train_datagen.flow_from_dataframe(
+    #         dataframe=validate_df,
+    #         x_col='file',
+    #         y_col='snake',
+    #         target_size=(img_size, img_size),
+    #         batch_size=generation_batch_size,
+    #         class_mode='binary',
+    #         validate_filenames=False
+    #     )
+    #     # print(len(validation_generator))
+    #
+    #     train_model.layers[0].trainable = False
+    #     train_model.layers[1].trainable = True
+    #     # num_layers_id = len(check_model.layers)
+    #     # train_model.summary()
+    #     train_model.layers[-1].fit(
+    #         validation_generator,
+    #         # steps_per_epoch=1,
+    #         steps_per_epoch=num_validation_samples // generation_batch_size,
+    #         epochs=int(x+1),
+    #         callbacks=[ModelCheckpoint('{}/CheckerTry_{}.hdf5'.format(model_folder, gan_uuid), save_best_only=False, mode = 'min')],
+    #         initial_epoch = int(x)
+    #     )
+    #     print(train_model.predict(test_values))
 
 @tf.autograph.experimental.do_not_convert
 def main(
@@ -266,7 +319,9 @@ def main(
         use_mixed_precision=False,
         gan_id=False,
         training_batch_size=training_batch_size,
-        generation_batch_size=generation_batch_size
+        generation_batch_size=generation_batch_size,
+        generator_optimizer=generator_optimizer,
+        discriminator_optimizer=discriminator_optimizer
     ):
     # print(tf.__version__)
     # print(tf.config.list_physical_devices('GPU'))
@@ -294,30 +349,37 @@ def main(
 
     test_datagen = ImageDataGenerator(rescale=1. / 255)
 
-    if start_from_scratch:
-        initializeSnakeIdentifier(
-            train_datagen,
-            test_datagen
-        )
+    # if start_from_scratch:
+    #     initializeSnakeIdentifier(
+    #         train_datagen,
+    #         test_datagen
+    #     )
     snek_generator = createSnekMaker()
     
     train_model = None
-    if gan_id:
-        print('Loading ', gan_id)
-        train_model = load_model('{}/CheckerTry_{}.hdf5'.format(model_folder, gan_id))
+    # if gan_id:
+    #     print('Loading ', gan_id)
+    #     train_model = load_model('{}/CheckerTry_{}.hdf5'.format(model_folder, gan_id))
 
-    snek_checker = load_model('Models/' + model_name+".hdf5")
-    snek_checker.compile(
-        loss='binary_crossentropy',
-        optimizer='Adam',
-        metrics=['accuracy']
-    )
-    trainSnekMaker(
-        train_datagen,
-        check_model=snek_checker,
-        gen_model=snek_generator,
-        train_model=train_model
-    )
+    # snek_checker = load_model('Models/' + model_name+".hdf5")
+    # snek_checker.compile(
+    #     loss='binary_crossentropy',
+    #     optimizer='Adam',
+    #     metrics=['accuracy']
+    # )
+    # checkpoint_dir = './snek_checkpoints'
+    # checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+    # checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
+    #                                  discriminator_optimizer=discriminator_optimizer,
+    #                                  snek_checker=snek_checker,
+    #                                  snek_generator=snek_generator)
+    # checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+    # trainSnekMaker(
+    #     train_datagen,
+    #     check_model=snek_checker,
+    #     gen_model=snek_generator,
+    #     train_model=train_model
+    # )
     
     # if fine_tune or start_from_scratch:
     #     fineTuneSnekMaker(
@@ -350,10 +412,28 @@ if __name__ == "__main__":
         '--gan-id',
         help='GAN Id to load',
     )
+    parser.add_argument(
+        '-o',
+        '--optimizer',
+        help='optimizier to user',
+        default='SGD'
+    )
     args = parser.parse_args()
+    if args.optimizer == 'adam':
+        print('Using Adam optimizer')
+        generator_optimizer = tf.keras.optimizers.Adam(beta_1=.5)
+        discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=.5)
+    elif args.optimizer == 'nadam':
+        print('Using Nadam optimizer')
+        generator_optimizer = tf.keras.optimizers.Nadam(beta_1=.5)
+        discriminator_optimizer = tf.keras.optimizers.Nadam(2e-4, beta_1=.5)
+    else:
+        print('Using SGD optimizer')
     main(
         start_from_scratch=args.start_from_scratch,
         fine_tune=args.fine_tune,
         use_mixed_precision=args.use_mixed_precision,
-        gan_id=args.gan_id
+        gan_id=args.gan_id,
+        generator_optimizer=generator_optimizer,
+        discriminator_optimizer=discriminator_optimizer
     )

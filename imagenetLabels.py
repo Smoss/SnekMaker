@@ -1009,6 +1009,8 @@ imagenet_labels = {
 	1000: ['dumbbell', 'n03255030']
 }
 
+imagenet_label_values = {'{}_{}'.format(val[1], val[0]): key for key, val in imagenet_labels.items()}
+
 imagenet_original_labels = {val[1]: val[0] for val in imagenet_labels.values()}
 print("There are 3 reapeating labels, crane and maillot, will need to fix if generalizing")
 # print(len(imagenet_original_labels.keys()))
