@@ -61,7 +61,9 @@ pre_name = 'Pre' + model_name
 # num_pics = len(os.listdir(directory + "\\Snakes"))
 generator_optimizer = tf.keras.optimizers.SGD(momentum=.5, nesterov=True)
 discriminator_optimizer = tf.keras.optimizers.SGD(.0002,momentum=.5, nesterov=True)
-CHANNELS = 16 * 64
+CHANNEL_MULT = 128
+CHANNELS = 16 * CHANNEL_MULT
+CLASS_PARAMS = CHANNEL_MULT
 INIT_SIZE = (4, 4, 1)
 
 @tf.autograph.experimental.do_not_convert
@@ -71,75 +73,8 @@ def initializeSnakeIdentifier(
     ):
     pass
     # print('Starting from Scratch')
-    #
-    # train_df = pd.read_csv('./classes_train.csv')
-    # validate_df = pd.read_csv('./classes_validate.csv')
-    #
-    # train_generator = train_datagen.flow_from_dataframe(
-    #     dataframe=train_df,
-    #     x_col='file',
-    #     y_col='snake',
-    #     target_size=(img_size, img_size),
-    #     batch_size=training_batch_size,
-    #     class_mode='binary',
-    #     validate_filenames=False
-    # )
-    #
-    # validation_generator = validation_datagen.flow_from_dataframe(
-    #     dataframe=validate_df,
-    #     x_col='file',
-    #     y_col='snake',
-    #     target_size=(img_size, img_size),
-    #     batch_size=training_batch_size,
-    #     class_mode='binary',
-    #     validate_filenames=False
-    # )
-    # # build the Xception network
-    # model = Xception(
-    #     weights='imagenet',
-    #     include_top=False,
-    #     input_shape=(img_size, img_size, 3)
-    # )
-    # # model.save_weights(model_folder + '/' + pre_name + "PristineNoWeight.hdf5")
-    #
-    # # set everything except the last separable convolution block to be untrainable
-    # for layer in model.layers[:-4]:
-    #     layer.trainable = False
-    # #model = load_model(pre_name + ".hdf5")
-    # print('Model loaded.')
-    # # build a classifier model to put on top of the convolutional model
-    # top_model = GlobalAveragePooling2D()(model.output)
-    # top_model = Dense(512, activation='relu')(top_model)
-    # top_model = Dropout(0.5)(top_model)
-    # top_model = Dense(1, activation='sigmoid')(top_model)
-    #
-    # #model =  Model(inputs=[main_input], outputs=[top_model])
-    #
-    # # add the model on top of the convolutional base
-    # model = Model(inputs = model.input, outputs=top_model)
-    # # for layer in model.layers:
-    # #     print(layer.dtype)
-    # # model.summary()
-    #
-    # # compile the model with a SGD/momentum optimizer
-    # # and a very slow learning rate.
-    # model.compile(
-    #     loss='binary_crossentropy',
-    #     optimizer=optimizers.Adam(epsilon=K.epsilon()),
-    #     metrics=['accuracy']
-    # )
-    #
-    # # fine-tune the model
-    # model.fit(
-    #     train_generator,
-    #     steps_per_epoch=NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN // training_batch_size,
-    #     epochs=training_epochs,
-    #     validation_data=validation_generator,
-    #     validation_steps=NUM_EXAMPLES_PER_EPOCH_FOR_EVAL // training_batch_size,
-    #     callbacks=[ModelCheckpoint(model_folder + '/' + model_name + '.hdf5', save_best_only=True, mode = 'min')]
-    # )
+
     # print("Trained Top")
-    # # model.predict(validation_generator)
 
 def saveFakes(images, parent='Fakes', folder='tryout'):
         output_folder = '{}/{}'.format(parent, folder)
@@ -155,56 +90,68 @@ def generate_fake_images(count=generation_batch_size, noise_dim=NUM_PARAMS, n_cl
     return noise, categories
 
 @tf.autograph.experimental.do_not_convert
-def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, z_dim=128, init_size=INIT_SIZE):
-    base_size = num_params // 6
-    split_rem = num_params % base_size
-    print(num_params % base_size, num_params, base_size)
-    if split_rem == 0:
-        noise_split_list = [base_size] * 6
-    else:
-        noise_split_list = [base_size] * 5 + [split_rem + base_size]
+def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, init_size=INIT_SIZE):
+    # base_size = num_params // 6
+    # split_rem = num_params % base_size
+    # print(num_params % base_size, num_params, base_size)
+    # if split_rem == 0:
+    #     noise_split_list = [base_size] * 6
+    # else:
+    #     noise_split_list = [base_size] * 5 + [split_rem + base_size]
 
-    print(noise_split_list)
     curr_channels = channels
     noise_in = layers.Input((num_params,))
-    noise_t = CustomLayers.SplitLayer(noise_split_list)(noise_in)
     embedding_in = layers.Input(shape=(1,))
-    embedding_layer = CustomLayers.EmbeddingBlock(INIT_SIZE, 1000, num_params)(embedding_in)
+    embedding_layer = layers.Embedding(1000, CLASS_PARAMS)(embedding_in)
+    embedding_layer = layers.Flatten()(embedding_layer)
 
-    gen = layers.Dense(init_size[0] * init_size[1] * curr_channels, use_bias=False)(noise_t[0])
+    repeat_layer = layers.Concatenate()([noise_in, embedding_layer])
+
+    gen = layers.Dense(init_size[0] * init_size[1] * curr_channels, use_bias=False)(repeat_layer)
     gen = layers.BatchNormalization()(gen)
     gen = layers.LeakyReLU()(gen)
-
     gen = layers.Reshape((init_size[0], init_size[1], curr_channels))(gen)
 
-    gen = layers.Concatenate()([gen, embedding_layer])
-    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock1')([gen, noise_t[1]])
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock1', split=False)([gen, repeat_layer])
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp1', split=False, up=True)([gen, repeat_layer])
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock2', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock2')([gen, noise_t[2]])
+    print(gen)
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp2', up=True)([gen, repeat_layer])
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock3', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock3')([gen, noise_t[3]])
+    print(gen)
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp3', up=True)([gen, repeat_layer])
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock4', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock4')([gen, noise_t[4]])
-
+    print(gen)
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp4', up=True)([gen, repeat_layer])
     gen = CustomLayers.SoftAttentionMax(curr_channels)(gen)
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock5', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    gen = CustomLayers.ResBlockUpCond(curr_channels, name='ResBlock5')([gen, noise_t[5]])
+    print(gen)
+    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp5', up=True)([gen, repeat_layer])
+    print(gen)
 
     gen = layers.BatchNormalization(momentum=.9)(gen)
 
     gen = layers.LeakyReLU()(gen)
 
     gen = layers.ZeroPadding2D()(gen)
-    new_img = CustomLayers.conv2D(color_channels, kernel_size = 3, activation=tanh)(gen)
+    new_img = CustomLayers.Conv2D(color_channels, kernel_size=3, activation=tanh)(gen)
     gen_model = Model([noise_in, embedding_in], new_img)
     gen_model.summary()
     noise, cats = generate_fake_images()
     import time
     K.clear_session()
+    start = time.time()
+    baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
+    print('Time to predict is {} sec'.format(time.time() - start))
+    noise, cats = generate_fake_images()
     start = time.time()
     baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
     print('Time to predict is {} sec'.format(time.time() - start))

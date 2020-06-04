@@ -6,6 +6,7 @@ Created on Sat May 16 00:25:28 2020
 This is a gan inspired by Big GAN and based on the implementation here https://github.com/taki0112/BigGAN-Tensorflow
 """
 #TODO Implement spectral normalization
+#TODO Update softmax attention block to match original implementation
 import Utils
 import tensorflow as tf
 import tensorflow.keras.layers as layers
@@ -16,8 +17,7 @@ weight_init = TruncatedNormal(mean=0.0, stddev=0.02)
 weight_regularizer = Utils.orthogonal_regularizer(0.0001)
 weight_regularizer_fully = Utils.orthogonal_regularizer_fully(0.0001)
 
-from tensorflow.keras.layers import Conv2DTranspose as deConv2D
-from tensorflow.keras.layers import Conv2D as conv2D
+from tensorflow.keras.layers import Conv2D as Conv2D
 from tensorflow.keras import backend as K
 import traceback
 import math
@@ -49,41 +49,41 @@ class SoftAttentionMax(layers.Layer):
         self.channels_fg = self.channels // 8
         self.channels_h = self.channels // 2
 
-        self.f = conv2D(self.channels_fg, 1, 1, name='F')
-        self.f_p = layers.MaxPool2D(name='F2')
-        self.g = conv2D(self.channels_fg, 1, 1, name='G')
-        self.h = conv2D(self.channels_h, 1, 1, name='H')
-        self.h_p = layers.MaxPool2D(name='H2')
+        self.theta = Conv2D(self.channels_fg, 1, 1, name='theta')
+        self.phi = Conv2D(self.channels_fg, 1, 1, name='phi')
+        self.phi_p = layers.MaxPool2D(name='phi2')
+        self.g = Conv2D(self.channels_h, 1, 1, name='G')
+        self.g_p = layers.MaxPool2D(name='G2')
 
         self.s = MatMul(transpose_b=True, name='FirstMatMul')
         self.beta = layers.Softmax(name='beta')
-        self.o = MatMul(name='SecondMatMul')
+        self.o = MatMul(transpose_a=True, name='SecondMatMul')
         self.gamma = self.add_weight(shape=[1], initializer=tf.constant_initializer(0.0))
-        self.o3 = conv2D(self.channels, 1, 1)
+        self.o3 = Conv2D(self.channels, 1, 1)
 
     def build(self, input_shape):
         self.hw = input_shape[1] * input_shape[2]
         self.hw_div = math.ceil(input_shape[1] / 2) * math.ceil(input_shape[2] / 2)
-        self.hw_flatten_f = layers.Reshape((self.hw_div, self.channels_fg), name='reshapeF')
-        self.hw_flatten_g = layers.Reshape((self.hw, self.channels_fg), name='reshapeG')
-        self.hw_flatten_h = layers.Reshape((self.hw_div, self.channels_h), name='reshapeH')
+        self.hw_flatten_theta = layers.Reshape((self.hw, self.channels_fg), name='reshapeTHETA')
+        self.hw_flatten_phi = layers.Reshape((self.hw_div, self.channels_fg), name='reshapePHI')
+        self.hw_flatten_g = layers.Reshape((self.hw_div, self.channels_h), name='reshapeG')
         self.o2 = layers.Reshape((input_shape[1], input_shape[2], self.channels_h), name='finalReshape')
 
     def call(self, inputs):
-        f_t = self.f(inputs)
-        f_t = self.f_p(f_t)
+        theta_t = self.theta(inputs)
+        phi_t = self.phi(inputs)
+        phi_t = self.phi_p(phi_t)
         g_t = self.g(inputs)
-        h_t = self.h(inputs)
-        h_t = self.h_p(h_t)
+        g_t = self.g_p(g_t)
 
-        f_t = self.hw_flatten_f(f_t)
-        g_t = self.hw_flatten_g(g_t)
-        s_t = self.s([g_t, f_t])
+        theta_t = self.hw_flatten_theta(theta_t)
+        phi_t = self.hw_flatten_phi(phi_t)
+        s_t = self.s([phi_t, theta_t])
         beta_t = self.beta(s_t)
 
-        h_t = self.hw_flatten_h(h_t)
+        g_t = self.hw_flatten_g(g_t)
 
-        o_t = self.o([beta_t, h_t])
+        o_t = self.o([beta_t, g_t])
         o_t = self.o2(o_t)
         o_t = self.o3(o_t)
         return self.gamma * o_t + inputs
@@ -95,7 +95,7 @@ class SoftAttentionMax(layers.Layer):
         })
         return config
 
-class DeconvBlock(layers.Layer):
+class ConvBlock(layers.Layer):
     def __init__(
             self,
             channels,
@@ -108,7 +108,7 @@ class DeconvBlock(layers.Layer):
             name=None,
             **kwargs
     ):
-        super(DeconvBlock, self).__init__(name=name, **kwargs)
+        super(ConvBlock, self).__init__(name=name, **kwargs)
         self.channels = channels
         self.kernel = kernel
         self.use_bias = use_bias
@@ -117,7 +117,7 @@ class DeconvBlock(layers.Layer):
         self.momentum = momentum
         self.batchNorm = layers.BatchNormalization(momentum=momentum)
         self.leakyRelu = layers.LeakyReLU()
-        self.deconv = deConv2D(
+        self.conv = Conv2D(
             channels,
             kernel,
             stride,
@@ -135,11 +135,11 @@ class DeconvBlock(layers.Layer):
         return output_t
 
     def get_config(self):
-        config = super(DeconvBlock, self).get_config()
+        config = super(ConvBlock, self).get_config()
         config.update()
         return config
 
-class DeconvBlockCond(layers.Layer):
+class ConvBlockCond(layers.Layer):
     def __init__(
             self,
             channels,
@@ -150,9 +150,10 @@ class DeconvBlockCond(layers.Layer):
             sn=False,
             momentum=.9,
             name=None,
+            up=False,
             **kwargs
     ):
-        super(DeconvBlockCond, self).__init__(name=None, **kwargs)
+        super(ConvBlockCond, self).__init__(name=None, **kwargs)
         self.channels = channels
         self.kernel = kernel
         self.use_bias = use_bias
@@ -161,7 +162,10 @@ class DeconvBlockCond(layers.Layer):
         self.momentum = momentum
         self.batchNorm = CondBatchNorm()
         self.leakyRelu = layers.LeakyReLU()
-        self.deconv = deConv2D(
+        self.up = up
+        if self.up:
+            self.upsample = layers.UpSampling2D()
+        self.conv = Conv2D(
             channels,
             kernel,
             stride,
@@ -175,61 +179,58 @@ class DeconvBlockCond(layers.Layer):
         conv_t, noise_t = inputs
         output_t = self.batchNorm([conv_t, noise_t])
         output_t = self.leakyRelu(output_t)
-        output_t = self.deconv(output_t)
+        if self.up:
+            output_t = self.upsample(output_t)
+        output_t = self.conv(output_t)
         # print(output_t)
         return output_t
 
     def get_config(self):
-        config = super(DeconvBlock, self).get_config()
+        config = super(ConvBlockCond, self).get_config()
         config.update()
         return config
 
-class ResBlockUp(layers.Layer):
-    def __init__(self, channels, use_bias=True, sn=False, momentum=.9, name=None, **kwargs):
-        super(ResBlockUp, self).__init__(name=None, **kwargs)
-        self.channels = channels
+class ResBlockCondD(layers.Layer):
+    def __init__(
+            self,
+            channelsOut,
+            use_bias=True,
+            sn=False,
+            momentum=.9,
+            name=None,
+            split=True,
+            up=False,
+            **kwargs
+    ):
+        super(ResBlockCondD, self).__init__(name=None, **kwargs)
+        self.channels = channelsOut
         self.use_bias = use_bias
         self.momentum = momentum
-        self.deconv_1 = DeconvBlock(channels, use_bias, momentum=momentum)
-        self.deconv_2 = DeconvBlock(channels, use_bias, momentum=momentum, stride=1)
-        self.deconv_3 = deConv2D(channels, 3, 2, use_bias=use_bias, padding='same')
-
-    def call(self, inputs):
-        output_t = self.deconv_1(inputs)
-        output_t = self.deconv_2(output_t)
-        skip_t = self.deconv_3(inputs)
-
-        return output_t + skip_t
-
-    def get_config(self):
-        config = super(ResBlockUp, self).get_config()
-        config.update({
-            'channels': self.channels,
-            'use_bias': self.use_bias,
-            'momentum': self.momentum
-        })
-        return config
-
-class ResBlockUpCond(layers.Layer):
-    def __init__(self, channels, use_bias=True, sn=False, momentum=.9, name=None, **kwargs):
-        super(ResBlockUpCond, self).__init__(name=name, **kwargs)
-        self.channels = channels
-        self.use_bias = use_bias
-        self.momentum =momentum
-        self.deconv_1 = DeconvBlockCond(channels, use_bias, momentum=momentum, name='Deconv_block_1')
-        self.deconv_2 = DeconvBlockCond(channels, use_bias, momentum=momentum, stride=1, name='Deconv_block_2')
-        self.deconv_3 = deConv2D(channels, 3, 2, use_bias=use_bias, padding='same', name='Deconv_skip')
+        self.deconv_1 = ConvBlockCond(channelsOut // 2, use_bias, kernel=1, momentum=momentum, stride=1)
+        self.deconv_2 = ConvBlockCond(channelsOut // 2, use_bias, momentum=momentum, stride=1, up=up)
+        self.deconv_3 = ConvBlockCond(channelsOut // 2, use_bias, momentum=momentum, stride=1)
+        self.deconv_4 = ConvBlockCond(channelsOut, use_bias, kernel=1, momentum=momentum, stride=1)
+        self.split = split
+        self.up = up
+        if up:
+            self.Upsample = layers.UpSampling2D(size=2)
 
     def call(self, inputs):
         conv_t, noise_t = inputs
         output_t = self.deconv_1([conv_t, noise_t])
         output_t = self.deconv_2([output_t, noise_t])
-        skip_t = self.deconv_3(conv_t)
+        output_t = self.deconv_3([output_t, noise_t])
+        output_t = self.deconv_4([output_t, noise_t])
+        skip_t = conv_t
+        if self.split:
+            skip_t, _ = tf.split(skip_t, 2, axis=3)
+        if self.up:
+            skip_t = self.Upsample(skip_t)
 
         return output_t + skip_t
 
     def get_config(self):
-        config = super(ResBlockUp, self).get_config()
+        config = super(ResBlockCondD, self).get_config()
         config.update({
             'channels': self.channels,
             'use_bias': self.use_bias,
@@ -237,30 +238,30 @@ class ResBlockUpCond(layers.Layer):
         })
         return config
 
-class EmbeddingBlock(layers.Layer):
-    def __init__(self, init_shape=(4, 4, 1), n_classes=1000, noise_dim=1280, name=None, **kwargs):
-        super(EmbeddingBlock, self).__init__(name=name, **kwargs)
-        self.init_shape = init_shape
-        self.n_classes = n_classes
-        self.noise_dim = noise_dim
-        self.embedding = layers.Embedding(n_classes, noise_dim)
-        self.dense = layers.Dense(init_shape[0] * init_shape[1])
-        self.reshape = layers.Reshape(init_shape)
-
-    def call(self, inputs):
-        output_t = self.embedding(inputs)
-        output_t = self.dense(output_t)
-        output_t = self.reshape(output_t)
-        return output_t
-
-    def get_config(self):
-        config = super(CondBatchNorm, self).get_config()
-        config.update({
-            'init_shape': self.init_shape,
-            'n_classes': self.n_classes,
-            'noise_dim': self.noise_dim
-        })
-        return config
+# class EmbeddingBlock(layers.Layer):
+#     def __init__(self, init_shape=(4, 4, 1), n_classes=1000, noise_dim=128, name=None, **kwargs):
+#         super(EmbeddingBlock, self).__init__(name=name, **kwargs)
+#         self.init_shape = init_shape
+#         self.n_classes = n_classes
+#         self.noise_dim = noise_dim
+#         self.embedding = layers.Embedding(n_classes, noise_dim)
+#         self.dense = layers.Dense(init_shape[0] * init_shape[1])
+#         self.reshape = layers.Reshape(init_shape)
+#
+#     def call(self, inputs):
+#         output_t = self.embedding(inputs)
+#         output_t = self.dense(output_t)
+#         output_t = self.reshape(output_t)
+#         return output_t
+#
+#     def get_config(self):
+#         config = super(CondBatchNorm, self).get_config()
+#         config.update({
+#             'init_shape': self.init_shape,
+#             'n_classes': self.n_classes,
+#             'noise_dim': self.noise_dim
+#         })
+#         return config
 
 class SplitLayer(layers.Layer):
     def __init__(self, split_list, name=None, **kwargs):
@@ -280,14 +281,16 @@ class SplitLayer(layers.Layer):
 class CondBatchNorm(layers.BatchNormalization):
     def __init__(self,
         epsilon=1e-5,
-        decay=.9,
+        momentum=.9,
+        axis=-1,
         name=None,
         **kwargs
      ):
         super(CondBatchNorm, self).__init__(name=name, **kwargs)
+        self.axis = axis
         # self.dynamic = True
         self.epsilon = epsilon
-        self.decay = decay
+        self.momentum = momentum
 
     def build(self, input_shape):
         if len(input_shape) != 2:
@@ -318,7 +321,6 @@ class CondBatchNorm(layers.BatchNormalization):
         return input_shape[0]
 
     def call(self, inputs, training=None):
-        training = self._get_training_value(training)
         training_value = tf_utils.constant_value(training)
         if len(inputs) != 2:
             raise ValueError('CondBatchNorm layer requires a list of inputs')
@@ -331,18 +333,18 @@ class CondBatchNorm(layers.BatchNormalization):
 
         if training_value:
             batch_mean, batch_var = tf.nn.moments(norm_t, [0, 1, 2], name='batchMoments')
-            self.add_update(
-                self._assign_new_value(
+            self.add_update([
+                K.moving_average_update(
                     self.moving_mean,
-                    self.moving_mean * self.decay + batch_mean * (1 - self.decay)
-                )
-            )
-            self.add_update(
-                self._assign_new_value(
+                    batch_mean,
+                    self.momentum
+                ),
+                K.moving_average_update(
                     self.moving_variance,
-                    self.moving_variance * self.decay + batch_var * (1 - self.decay)
+                    batch_var,
+                    self.momentum
                 )
-            )
+            ])
             with tf.control_dependencies([self.moving_mean, self.moving_variance]):
                 return tf.nn.batch_normalization(
                     norm_t,

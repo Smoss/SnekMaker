@@ -14,8 +14,8 @@ Cifar100Data/*
 ILSVRC2012_img_train/*
 .idea/*
 Squares/*
-./classes_train.csv
-./classes_validate.csv
+classes_train.csv
+classes_validate.csv
 mnist_fakes/*
 checkpoint/*
 training_checkpoints/*
