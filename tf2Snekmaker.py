@@ -43,7 +43,7 @@ NUM_CLASSES = 2
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 1153006
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 128161
 num_preprocess_threads = 24
-training_batch_size = 200
+training_batch_size = 32
 generation_batch_size = training_batch_size
 training_epochs = 1
 IMG_SIZE = 128
@@ -65,16 +65,56 @@ CHANNEL_MULT = 128
 CHANNELS = 16 * CHANNEL_MULT
 CLASS_PARAMS = CHANNEL_MULT
 INIT_SIZE = (4, 4, 1)
+OUTPUT_CLASSES = 1000
 
 @tf.autograph.experimental.do_not_convert
-def initializeSnakeIdentifier(
-        train_datagen,
-        validation_datagen
-    ):
-    pass
-    # print('Starting from Scratch')
+def initializeSnakeIdentifier(num_params=NUM_PARAMS, channels=CHANNELS):
+    curr_channels = CHANNEL_MULT
+    class_in = layers.Input(shape=(1,))
+    embedding_layer = layers.Embedding(OUTPUT_CLASSES, CHANNELS)(class_in)
 
-    # print("Trained Top")
+    img_in = layers.Input(shape=(128, 128, 3))
+    disc = CustomLayers.Conv2D(curr_channels, kernel_size=3, padding='same')(img_in)
+
+    curr_channels *= 2
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown1', down=True)(disc)
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock1')(disc)
+    disc = CustomLayers.SoftAttentionMax(curr_channels)(disc)
+
+    curr_channels *= 2
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown2', down=True)(disc)
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock2')(disc)
+
+    curr_channels *= 2
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown3', down=True)(disc)
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock3')(disc)
+
+    curr_channels *= 2
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown4', down=True)(disc)
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock4')(disc)
+
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown5', down=True)(disc)
+    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock5')(disc)
+
+    disc = layers.ReLU()(disc)
+    disc = CustomLayers.GlobalSumPooling2D()(disc)
+
+    embedding_layer = layers.Flatten()(embedding_layer)
+    embedding_layer = layers.Dot((1, 1))([disc, embedding_layer])
+
+    disc = CustomLayers.Dense(1)(disc)
+
+    judge = layers.Add(name='FinalAdd')(
+        [
+            disc,
+            embedding_layer
+        ]
+    )
+
+    discriminator = Model(inputs=[img_in, class_in], outputs=judge, name='Discriminator')
+
+    discriminator.summary()
+    return discriminator
 
 def saveFakes(images, parent='Fakes', folder='tryout'):
         output_folder = '{}/{}'.format(parent, folder)
@@ -91,25 +131,18 @@ def generate_fake_images(count=generation_batch_size, noise_dim=NUM_PARAMS, n_cl
 
 @tf.autograph.experimental.do_not_convert
 def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, init_size=INIT_SIZE):
-    # base_size = num_params // 6
-    # split_rem = num_params % base_size
-    # print(num_params % base_size, num_params, base_size)
-    # if split_rem == 0:
-    #     noise_split_list = [base_size] * 6
-    # else:
-    #     noise_split_list = [base_size] * 5 + [split_rem + base_size]
 
     curr_channels = channels
     noise_in = layers.Input((num_params,))
     embedding_in = layers.Input(shape=(1,))
-    embedding_layer = layers.Embedding(1000, CLASS_PARAMS)(embedding_in)
+    embedding_layer = layers.Embedding(OUTPUT_CLASSES, CLASS_PARAMS)(embedding_in)
     embedding_layer = layers.Flatten()(embedding_layer)
 
     repeat_layer = layers.Concatenate()([noise_in, embedding_layer])
 
-    gen = layers.Dense(init_size[0] * init_size[1] * curr_channels, use_bias=False)(repeat_layer)
+    gen = CustomLayers.Dense(init_size[0] * init_size[1] * curr_channels, use_bias=False)(repeat_layer)
     gen = layers.BatchNormalization()(gen)
-    gen = layers.LeakyReLU()(gen)
+    gen = layers.ReLU()(gen)
     gen = layers.Reshape((init_size[0], init_size[1], curr_channels))(gen)
 
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock1', split=False)([gen, repeat_layer])
@@ -117,37 +150,31 @@ def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, init_size=INIT_SIZ
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock2', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    print(gen)
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp2', up=True)([gen, repeat_layer])
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock3', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    print(gen)
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp3', up=True)([gen, repeat_layer])
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock4', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    print(gen)
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp4', up=True)([gen, repeat_layer])
     gen = CustomLayers.SoftAttentionMax(curr_channels)(gen)
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock5', split=False)([gen, repeat_layer])
     curr_channels = curr_channels // 2
 
-    print(gen)
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp5', up=True)([gen, repeat_layer])
-    print(gen)
 
     gen = layers.BatchNormalization(momentum=.9)(gen)
 
-    gen = layers.LeakyReLU()(gen)
+    gen = layers.ReLU()(gen)
 
     gen = layers.ZeroPadding2D()(gen)
     new_img = CustomLayers.Conv2D(color_channels, kernel_size=3, activation=tanh)(gen)
-    gen_model = Model([noise_in, embedding_in], new_img)
-    gen_model.summary()
+    gen_model = Model([noise_in, embedding_in], new_img, name='Generator')
+    # gen_model.summary()
     noise, cats = generate_fake_images()
     import time
-    K.clear_session()
     start = time.time()
     baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
     print('Time to predict is {} sec'.format(time.time() - start))
@@ -155,9 +182,8 @@ def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, init_size=INIT_SIZ
     start = time.time()
     baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
     print('Time to predict is {} sec'.format(time.time() - start))
-    print(baby_noise.shape)
     saveFakes(baby_noise)
-    return gen_model
+    return gen_model, baby_noise
 
 @tf.autograph.experimental.do_not_convert
 def trainSnekMaker(
@@ -301,7 +327,13 @@ def main(
     #         train_datagen,
     #         test_datagen
     #     )
-    snek_generator = createSnekMaker()
+    snek_generator, baby_noise = createSnekMaker()
+    snek_discriminator = initializeSnakeIdentifier()
+    snek_disc_res = snek_discriminator.predict(
+        [baby_noise, tf.constant([1] * 32)],
+        batch_size=generation_batch_size
+    )
+    print(snek_disc_res)
     
     train_model = None
     # if gan_id:
