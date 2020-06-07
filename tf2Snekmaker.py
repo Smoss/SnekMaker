@@ -6,6 +6,8 @@ Created on Sat May 16 00:25:28 2020
 
 This is a gan inspired by Big GAN and based on the implementation here https://github.com/taki0112/BigGAN-Tensorflow
 """
+import math
+import time
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Flatten, Dropout, Input
@@ -36,15 +38,17 @@ import ImageNetSifter
 import uuid
 import CustomLayers
 import random
+import imagenetLabels
 
 snake_val = 1
 not_snake_val = 0
 NUM_CLASSES = 2
-NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 1153006
-NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 128161
+TOTAL_EXAMPLES = 1281166
+TRAINING_BATCH_SIZE = 64
+NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = TOTAL_EXAMPLES #- (TOTAL_EXAMPLES % TRAINING_BATCH_SIZE)
+NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 0
 num_preprocess_threads = 24
-training_batch_size = 32
-generation_batch_size = training_batch_size
+generation_batch_size = TRAINING_BATCH_SIZE
 training_epochs = 1
 IMG_SIZE = 128
 NUM_PARAMS = 128
@@ -52,7 +56,7 @@ inc_name = 'Xception'
 first_layer_dim = 10
 color_channels = 3
 epochs_gen_ratio = 1
-epochs = 1000
+EPOCHS = 1000
 num_samples = 200
 imagenet_dir = './ImageNetImages'
 model_folder = './Models'
@@ -61,11 +65,12 @@ pre_name = 'Pre' + model_name
 # num_pics = len(os.listdir(directory + "\\Snakes"))
 generator_optimizer = tf.keras.optimizers.SGD(momentum=.5, nesterov=True)
 discriminator_optimizer = tf.keras.optimizers.SGD(.0002,momentum=.5, nesterov=True)
-CHANNEL_MULT = 128
+CHANNEL_MULT = 32
 CHANNELS = 16 * CHANNEL_MULT
 CLASS_PARAMS = CHANNEL_MULT
 INIT_SIZE = (4, 4, 1)
 OUTPUT_CLASSES = 1000
+FINAL_IMG_SIZE = 128
 
 @tf.autograph.experimental.do_not_convert
 def initializeSnakeIdentifier(num_params=NUM_PARAMS, channels=CHANNELS):
@@ -113,7 +118,7 @@ def initializeSnakeIdentifier(num_params=NUM_PARAMS, channels=CHANNELS):
 
     discriminator = Model(inputs=[img_in, class_in], outputs=judge, name='Discriminator')
 
-    discriminator.summary()
+    # discriminator.summary()
     return discriminator
 
 def saveFakes(images, parent='Fakes', folder='tryout'):
@@ -130,7 +135,11 @@ def generate_fake_images(count=generation_batch_size, noise_dim=NUM_PARAMS, n_cl
     return noise, categories
 
 @tf.autograph.experimental.do_not_convert
-def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, init_size=INIT_SIZE):
+def createSnekMaker(
+        num_params=NUM_PARAMS,
+        channels=CHANNELS,
+        init_size=INIT_SIZE
+):
 
     curr_channels = channels
     noise_in = layers.Input((num_params,))
@@ -173,131 +182,139 @@ def createSnekMaker(num_params=NUM_PARAMS, channels=CHANNELS, init_size=INIT_SIZ
     new_img = CustomLayers.Conv2D(color_channels, kernel_size=3, activation=tanh)(gen)
     gen_model = Model([noise_in, embedding_in], new_img, name='Generator')
     # gen_model.summary()
-    noise, cats = generate_fake_images()
-    import time
-    start = time.time()
-    baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
-    print('Time to predict is {} sec'.format(time.time() - start))
-    noise, cats = generate_fake_images()
-    start = time.time()
-    baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
-    print('Time to predict is {} sec'.format(time.time() - start))
-    saveFakes(baby_noise)
-    return gen_model, baby_noise
+    # noise, cats = generate_fake_images()
+    # import time
+    # start = time.time()
+    # baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
+    # print('Time to predict is {} sec'.format(time.time() - start))
+    # noise, cats = generate_fake_images()
+    # start = time.time()
+    # baby_noise = gen_model.predict([noise, cats], batch_size=generation_batch_size)
+    # print('Time to predict is {} sec'.format(time.time() - start))
+    # saveFakes(baby_noise)
+    return gen_model#, baby_noise
 
-@tf.autograph.experimental.do_not_convert
-def trainSnekMaker(
-        train_datagen,
-        num_training_samples=NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN,
-        num_validation_samples=NUM_EXAMPLES_PER_EPOCH_FOR_EVAL,
-        gen_model=None,
-        check_model=None,
-        train_model=None
-    ):
-    pass
-    # if not train_model:
-    #     train_model = Sequential()
-    #     train_model.add(gen_model)
-    #     train_model.add(check_model)
-    # if check_model:
-    #     check_model.summary()
-    # if gen_model:
-    #     gen_model.summary()
-    # train_model.summary()
-    # train_model.compile(
-    #     loss='binary_crossentropy',
-    #     optimizer=optimizers.Adam(epsilon=K.epsilon()),
-    #     metrics=['accuracy']
-    # )
-    # for x in range(0, epochs):
-    #     gan_uuid = uuid.uuid4()
-    #     train_model.layers[0].trainable = True
-    #     train_model.layers[1].trainable = False
-    #
-    #     input_values = np.random.random_sample((num_samples, num_params))
-    #     train_model.fit(
-    #         input_values,
-    #         np.ones(num_samples),
-    #         batch_size=generation_batch_size,
-    #         callbacks=[ModelCheckpoint('{}/SnekTrainerWhole.hdf5'.format(model_folder))],
-    #         epochs=(x+1),
-    #         initial_epoch=x
-    #     )
-    #
-    #     train_model.layers[0].save_weights(
-    #         '{}/SnekGAN_{}.hdf5'.format(model_folder, gan_uuid),
-    #         overwrite=True
-    #     )
-    #
-    #     snek_gen_model = train_model.layers[0]
-    #     fake_snakes = input_values[:1000]
-    #     output_squares = snek_gen_model.predict(
-    #         input_values,
-    #         batch_size=generation_batch_size,
-    #         callbacks=[ProgbarLogger()]
-    #     )
-    #     output_folder = '{}/fake_snakes_{}'.format(ImageNetSifter.imagenet_dir, gan_uuid)
-    #     if not os.path.exists(output_folder):
-    #         os.makedirs(output_folder)
-    #
-    #     for y in range(0, len(output_squares)):
-    #         array_to_img(output_squares[y]).save('{}/snake_{}.jpeg'.format(output_folder, y))
-    #
-    #     test_values = input_values[-5:]
-    #     print(train_model.predict(test_values))
-    #     num_training_samples, num_validation_samples = ImageNetSifter.decodeDir(only_snakes=True)
-    #
-    #     train_df = pd.read_csv('./classes_train.csv')
-    #     validate_df = pd.read_csv('./classes_validate.csv')
-    #
-    #     train_generator = train_datagen.flow_from_dataframe(
-    #         dataframe=train_df,
-    #         x_col='file',
-    #         y_col='snake',
-    #         target_size=(img_size, img_size),
-    #         batch_size=generation_batch_size,
-    #         class_mode='binary',
-    #         validate_filenames=False
-    #     )
-    #
-    #     validation_generator = train_datagen.flow_from_dataframe(
-    #         dataframe=validate_df,
-    #         x_col='file',
-    #         y_col='snake',
-    #         target_size=(img_size, img_size),
-    #         batch_size=generation_batch_size,
-    #         class_mode='binary',
-    #         validate_filenames=False
-    #     )
-    #     # print(len(validation_generator))
-    #
-    #     train_model.layers[0].trainable = False
-    #     train_model.layers[1].trainable = True
-    #     # num_layers_id = len(check_model.layers)
-    #     # train_model.summary()
-    #     train_model.layers[-1].fit(
-    #         validation_generator,
-    #         # steps_per_epoch=1,
-    #         steps_per_epoch=num_validation_samples // generation_batch_size,
-    #         epochs=int(x+1),
-    #         callbacks=[ModelCheckpoint('{}/CheckerTry_{}.hdf5'.format(model_folder, gan_uuid), save_best_only=False, mode = 'min')],
-    #         initial_epoch = int(x)
-    #     )
-    #     print(train_model.predict(test_values))
+def generate_and_save_images(model, epoch, num_params=NUM_PARAMS, num_images=10):
+    # Notice `training` is set to False.
+    # This is so all layers run in inference mode (batchnorm)
+    start = time.time()
+    for idx in range(1000):
+        noise = tf.random.normal([num_images, num_params])
+        categories = tf.constant([idx for _ in range(num_images)])
+        predictions = model([noise, categories], training=False)
+        output_folder = 'big_gan_fakes/fake_imgs_{}'.format(epoch)
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+
+        for y in range(0, len(predictions)):
+            tf.keras.preprocessing.image.array_to_img(predictions[y]).\
+                save('{}/{}_id_{}.jpeg'.format(
+                    output_folder,
+                    imagenetLabels.imagenet_labels[idx+1][0],
+                    y
+                ))
+
+    print('Took ', time.time() - start, ' seconds')
+
+def train(train_df, epochs, generator, discriminator, gan, checkpoint, checkpoint_prefix):
+    for epoch in range(epochs):
+        epoch += 1
+
+        tot_gen_loss = 0
+        tot_disc_loss = 0
+        data_len = math.ceil(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / 40)
+        dataset = make_dataset(train_df)
+        for image_batch, image_labels in tqdm(
+                dataset,
+                desc='Epoch {}'.format(epoch),
+                total=data_len
+        ):
+            # print(image_labels)
+            # image_labels = tf.reshape(image_labels, (TRAINING_BATCH_SIZE, 1))
+            # positive_labels = tf.ones_like(image_labels)
+            # print(positive_labels)
+            # print(image_labels)
+
+            image_labels = tf.reshape(image_labels, (-1,))
+            image_batch = tf.reshape(image_batch, (-1, IMG_SIZE, IMG_SIZE, 3))
+            disc_loss_1 = discriminator.train_on_batch(
+                [image_batch, image_labels],
+                tf.ones_like(image_labels)
+            )
+            generated_noise_1, generated_labels_1 = generate_fake_images(image_batch.shape[0])
+            generated_images = generator([generated_noise_1, generated_labels_1], training=True)
+            disc_loss_2 = discriminator.train_on_batch(
+                [generated_images, generated_labels_1],
+                tf.zeros_like(image_labels)
+            )
+            # generated_noise_2, generated_labels_2 = generate_fake_images()
+            # print(generated_noise, generated_labels)
+            gen_loss = gan.train_on_batch(
+                [generated_noise_1, generated_labels_1],
+                tf.ones_like(image_labels)
+            )
+            tot_gen_loss += gen_loss
+            tot_disc_loss += disc_loss_1 + disc_loss_2
+            # Save the model every 15 epochs
+        print(tot_gen_loss / data_len, tot_disc_loss / data_len)
+        if epoch % 2 == 0:
+            checkpoint.save(file_prefix=checkpoint_prefix)
+
+        generator.save('Models/Mnist_CGAN.hdf5')
+
+        # if epoch % 5 == 1:
+        #     # Generate after the final epoch
+        #     generate_and_save_images(generator,
+        #                              epoch)
+
+def make_gan(discriminator, generator):
+    discriminator.trainable = False
+    gen_noise, gen_label = generator.input
+
+    gen_image = generator.output
+
+    gan_output = discriminator([gen_image, gen_label])
+
+    model = tf.keras.Model([gen_noise, gen_label], gan_output)
+
+    model.compile(loss="binary_crossentropy", optimizer=generator_optimizer)
+    return model
+
+def make_dataset(train_df):
+    # train_csv_rows, _ = ImageNetSifter.decodeDir()
+
+    train_datagen = ImageDataGenerator(
+        rescale=1. / 255
+    )
+    # start = time.time()
+    # train_df = train_df.sample(frac=1).reset_index(drop=True)
+    # print('Took ', time.time() - start, ' seconds')
+    train_generator = lambda : train_datagen.flow_from_dataframe(
+        dataframe=train_df,
+        x_col='file',
+        y_col='class_num',
+        target_size=(FINAL_IMG_SIZE, FINAL_IMG_SIZE),
+        validate_filenames=False,
+        batch_size=1,
+        class_mode='sparse'
+    )
+    # imgs, classes = next(validation_generator)
+    # print(imgs.shape)
+    # print(classes.shape)
+    return tf.data.Dataset.from_generator(
+        train_generator,
+        output_types=(tf.float32, tf.float32),
+        output_shapes=([1, FINAL_IMG_SIZE, FINAL_IMG_SIZE, 3], [1])
+    ).take(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN).batch(TRAINING_BATCH_SIZE)
 
 @tf.autograph.experimental.do_not_convert
 def main(
-        start_from_scratch=False,
-        fine_tune=False,
         use_mixed_precision=False,
-        gan_id=False,
-        training_batch_size=training_batch_size,
+        training_batch_size=TRAINING_BATCH_SIZE,
         generation_batch_size=generation_batch_size,
         generator_optimizer=generator_optimizer,
         discriminator_optimizer=discriminator_optimizer
     ):
-    # print(tf.__version__)
-    # print(tf.config.list_physical_devices('GPU'))
     if use_mixed_precision:
         print('Using Mixed Precision')
         policy = mixed_precision.Policy('mixed_float16')
@@ -313,12 +330,6 @@ def main(
     print('Compute dtype: %s' % policy.compute_dtype)
     print('Variable dtype: %s' % policy.variable_dtype)
     tf.autograph.set_verbosity(0, False)
-    train_datagen = ImageDataGenerator(
-        rescale=1. / 255
-        # shear_range=0.2,
-        # zoom_range=0.2,
-        # horizontal_flip=True
-    )
 
     test_datagen = ImageDataGenerator(rescale=1. / 255)
 
@@ -327,69 +338,49 @@ def main(
     #         train_datagen,
     #         test_datagen
     #     )
-    snek_generator, baby_noise = createSnekMaker()
+    snek_generator = createSnekMaker()
     snek_discriminator = initializeSnakeIdentifier()
-    snek_disc_res = snek_discriminator.predict(
-        [baby_noise, tf.constant([1] * 32)],
-        batch_size=generation_batch_size
-    )
-    print(snek_disc_res)
-    
-    train_model = None
-    # if gan_id:
-    #     print('Loading ', gan_id)
-    #     train_model = load_model('{}/CheckerTry_{}.hdf5'.format(model_folder, gan_id))
+    # snek_discriminator.predict([baby_noise, tf.constant([0]*32)])
+    gan = make_gan(snek_discriminator, snek_generator)
+    snek_discriminator.compile(optimizer=discriminator_optimizer, loss='binary_crossentropy')
 
-    # snek_checker = load_model('Models/' + model_name+".hdf5")
-    # snek_checker.compile(
-    #     loss='binary_crossentropy',
-    #     optimizer='Adam',
-    #     metrics=['accuracy']
-    # )
-    # checkpoint_dir = './snek_checkpoints'
-    # checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-    # checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
-    #                                  discriminator_optimizer=discriminator_optimizer,
-    #                                  snek_checker=snek_checker,
-    #                                  snek_generator=snek_generator)
-    # checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+    train_df = pd.read_csv('./classes_train.csv')
+
+    checkpoint_dir = './snek_checkpoints'
+    checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+    print(checkpoint_prefix)
+    checkpoint = tf.train.Checkpoint(
+        generator_optimizer=generator_optimizer,
+        discriminator_optimizer=discriminator_optimizer,
+        snek_checker=snek_discriminator,
+        snek_generator=snek_generator,
+        gan=gan
+    )
+    checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+    checkpoint.save(file_prefix=checkpoint_prefix)
     # trainSnekMaker(
     #     train_datagen,
     #     check_model=snek_checker,
     #     gen_model=snek_generator,
     #     train_model=train_model
     # )
-    
-    # if fine_tune or start_from_scratch:
-    #     fineTuneSnekMaker(
-    #         train_datagen,
-    #         test_datagen,
-    #         train_generator,
-    #         validation_generator
-    #     )
+    train(
+        train_df,
+        EPOCHS,
+        snek_generator,
+        snek_discriminator,
+        gan,
+        checkpoint,
+        checkpoint_prefix
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create Snake Making GAN.')
     parser.add_argument(
-        '--fine-tune', 
-        help='Fine tune the pre trained model',
-        action='store_true'
-    )
-    parser.add_argument(
-        '--start-from-scratch',
-        help='Retrain the whole XCeptionModel from the start',
-        action='store_true'
-    )
-    parser.add_argument(
         '--use-mixed-precision',
         help='Used mixed precision',
         action='store_true'
-    )
-    parser.add_argument(
-        '-g',
-        '--gan-id',
-        help='GAN Id to load',
     )
     parser.add_argument(
         '-o',
@@ -400,19 +391,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.optimizer == 'adam':
         print('Using Adam optimizer')
-        generator_optimizer = tf.keras.optimizers.Adam(beta_1=.5)
-        discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=.5)
+        generator_optimizer = tf.keras.optimizers.Adam(5e-5, beta_1=0)
+        discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0)
     elif args.optimizer == 'nadam':
         print('Using Nadam optimizer')
-        generator_optimizer = tf.keras.optimizers.Nadam(beta_1=.5)
-        discriminator_optimizer = tf.keras.optimizers.Nadam(2e-4, beta_1=.5)
+        generator_optimizer = tf.keras.optimizers.Nadam(5e-5, beta_1=0)
+        discriminator_optimizer = tf.keras.optimizers.Nadam(2e-4, beta_1=0)
     else:
         print('Using SGD optimizer')
     main(
-        start_from_scratch=args.start_from_scratch,
-        fine_tune=args.fine_tune,
         use_mixed_precision=args.use_mixed_precision,
-        gan_id=args.gan_id,
         generator_optimizer=generator_optimizer,
         discriminator_optimizer=discriminator_optimizer
     )

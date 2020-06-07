@@ -211,7 +211,7 @@ class SoftAttentionMax(layers.Layer):
         self.s = MatMul(transpose_b=True, name='FirstMatMul')
         self.beta = layers.Softmax(name='beta')
         self.o = MatMul(transpose_a=True, name='SecondMatMul')
-        self.gamma = self.add_weight(shape=[1], initializer=tf.constant_initializer(0.0))
+        self.gamma = self.add_weight(shape=[1], name='gamma', initializer=tf.constant_initializer(0.0))
         self.o3 = Conv2D(self.channels, 1, 1)
 
     def build(self, input_shape):
@@ -573,14 +573,14 @@ class CondBatchNorm(layers.BatchNormalization):
         self.beta = layers.Dense(
             c,
             kernel_initializer=weight_init,
-            kernel_regularizer=weight_regularizer,
+            kernel_regularizer=weight_regularizer_fully,
             use_bias=True,
             name="beta"
         )
         self.gamma = layers.Dense(
             c,
             kernel_initializer=weight_init,
-            kernel_regularizer=weight_regularizer,
+            kernel_regularizer=weight_regularizer_fully,
             use_bias=True,
             name="gamma"
         )

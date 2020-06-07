@@ -4,6 +4,7 @@ import shutil
 import csv
 import random
 import imagenetLabels
+from PIL import Image
 imagenet_dir = './ImageNetImages'
 snake_labels = [
     'Indian_cobra',
@@ -37,30 +38,34 @@ def decodeDir(
             abs_path = os.path.abspath(from_path)
             is_snake = label in snake_labels
             target_class = imagenetLabels.imagenet_label_values[label]
-            row_dict = {'file': abs_path, 'snake': target_class}
-            if validator_splitter % 10 == 0:
-                validate_csv_rows.append(row_dict)
-            else:
-                train_csv_rows.append(row_dict)
+            row_dict = {'file': abs_path, 'class_num': [target_class]}
+            # if validator_splitter % 10 == 0:
+            #     validate_csv_rows.append(row_dict)
+            # else:
+            train_csv_rows.append(row_dict)
             validator_splitter += 1
-        print('Finished handling', label)
-    headers = ['file', 'snake']
-    print(len(train_csv_rows))
-    print(len(validate_csv_rows))
+        # print('Finished handling', label)
+    # print(len(train_csv_rows))
+    # print(len(validate_csv_rows))
     random.shuffle(train_csv_rows)
     random.shuffle(validate_csv_rows)
-    with open('classes_train.csv', 'w') as train_file:       
+    
+    # print('Sifted all the data')
+    # print(len(train_csv_rows), len(validate_csv_rows))
+    return train_csv_rows, validate_csv_rows
+
+def writeCSVs(train_csv_rows, validate_csv_rows):
+    headers = ['file', 'class_num']
+    with open('classes_train.csv', 'w') as train_file:
         train_csv = csv.DictWriter(train_file, headers)
         train_csv.writeheader()
         train_csv.writerows(train_csv_rows)
 
-    with open('classes_validate.csv', 'w') as validate_file:       
+    with open('classes_validate.csv', 'w') as validate_file:
         validate_csv = csv.DictWriter(validate_file, headers)
         validate_csv.writeheader()
         validate_csv.writerows(validate_csv_rows)
-    
-    print('Sifted all the data')
-    return len(train_csv_rows), len(validate_csv_rows)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Decode pickled images.')
@@ -70,13 +75,20 @@ if __name__ == "__main__":
         help='Directory to decode',
         default=imagenet_dir
     )
-    parser.add_argument(   
+    # parser.add_argument(
+    #     '-s',
+    #     '--only-snakes',
+    #     help='Directory to decode',
+    #     action='store_true'
+    # )
+    parser.add_argument(
         '-s',
-        '--only-snakes',
-        help='Directory to decode',
-        action='store_true'
+        '--target-size',
+        help='Dimension to resize images to',
+        type=int
     )
     args = parser.parse_args()
-    decodeDir(
+    train_csv_rows, validate_csv_rows = decodeDir(
         args.directory
     )
+    writeCSVs(train_csv_rows, validate_csv_rows)

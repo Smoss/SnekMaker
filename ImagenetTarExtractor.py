@@ -7,7 +7,7 @@ import argparse
 from imagenetLabels import imagenet_labels, imagenet_original_labels
 from PIL import Image
 imagenet_dir = './ILSVRC2012_img_train'
-initial_dir = './ImageNetImages'
+initial_dir = './ImageNetImagesUnsized'
 
 def decodeDir(directory=imagenet_dir, target_dir=initial_dir):
     # labels = unpickle(imagenet_dir + '/batches.meta')
