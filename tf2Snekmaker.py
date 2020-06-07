@@ -44,13 +44,13 @@ snake_val = 1
 not_snake_val = 0
 NUM_CLASSES = 2
 TOTAL_EXAMPLES = 1281166
-TRAINING_BATCH_SIZE = 64
+TRAINING_BATCH_SIZE = 16
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = TOTAL_EXAMPLES #- (TOTAL_EXAMPLES % TRAINING_BATCH_SIZE)
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 0
 num_preprocess_threads = 24
 generation_batch_size = TRAINING_BATCH_SIZE
 training_epochs = 1
-IMG_SIZE = 128
+# IMG_SIZE = 128
 NUM_PARAMS = 128
 inc_name = 'Xception'
 first_layer_dim = 10
@@ -64,13 +64,14 @@ model_name = inc_name + 'Checkpoint'
 pre_name = 'Pre' + model_name
 # num_pics = len(os.listdir(directory + "\\Snakes"))
 generator_optimizer = tf.keras.optimizers.SGD(momentum=.5, nesterov=True)
-discriminator_optimizer = tf.keras.optimizers.SGD(.0002,momentum=.5, nesterov=True)
-CHANNEL_MULT = 32
+discriminator_optimizer = tf.keras.optimizers.SGD(.0002, momentum=.5, nesterov=True)
+CHANNEL_MULT = 80
 CHANNELS = 16 * CHANNEL_MULT
 CLASS_PARAMS = CHANNEL_MULT
 INIT_SIZE = (4, 4, 1)
 OUTPUT_CLASSES = 1000
-FINAL_IMG_SIZE = 128
+FINAL_IMG_SIZE = 64
+cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
 @tf.autograph.experimental.do_not_convert
 def initializeSnakeIdentifier(num_params=NUM_PARAMS, channels=CHANNELS):
@@ -78,15 +79,15 @@ def initializeSnakeIdentifier(num_params=NUM_PARAMS, channels=CHANNELS):
     class_in = layers.Input(shape=(1,))
     embedding_layer = layers.Embedding(OUTPUT_CLASSES, CHANNELS)(class_in)
 
-    img_in = layers.Input(shape=(128, 128, 3))
+    img_in = layers.Input(shape=(FINAL_IMG_SIZE, FINAL_IMG_SIZE, 3))
     disc = CustomLayers.Conv2D(curr_channels, kernel_size=3, padding='same')(img_in)
 
-    curr_channels *= 2
-    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown1', down=True)(disc)
-    disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock1')(disc)
+    # curr_channels *= 2
+    # disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown1', down=True)(disc)
+    # disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock1')(disc)
     disc = CustomLayers.SoftAttentionMax(curr_channels)(disc)
 
-    curr_channels *= 2
+    curr_channels *= 4
     disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlockDown2', down=True)(disc)
     disc = CustomLayers.ResBlockCondDownD(curr_channels, name='DiscBlock2')(disc)
 
@@ -118,7 +119,7 @@ def initializeSnakeIdentifier(num_params=NUM_PARAMS, channels=CHANNELS):
 
     discriminator = Model(inputs=[img_in, class_in], outputs=judge, name='Discriminator')
 
-    # discriminator.summary()
+    discriminator.summary()
     return discriminator
 
 def saveFakes(images, parent='Fakes', folder='tryout'):
@@ -169,10 +170,10 @@ def createSnekMaker(
 
     gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp4', up=True)([gen, repeat_layer])
     gen = CustomLayers.SoftAttentionMax(curr_channels)(gen)
-    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock5', split=False)([gen, repeat_layer])
-    curr_channels = curr_channels // 2
+    # gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlock5', split=False)([gen, repeat_layer])
+    # curr_channels = curr_channels // 2
 
-    gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp5', up=True)([gen, repeat_layer])
+    # gen = CustomLayers.ResBlockCondD(curr_channels, name='ResBlockUp5', up=True)([gen, repeat_layer])
 
     gen = layers.BatchNormalization(momentum=.9)(gen)
 
@@ -181,7 +182,7 @@ def createSnekMaker(
     gen = layers.ZeroPadding2D()(gen)
     new_img = CustomLayers.Conv2D(color_channels, kernel_size=3, activation=tanh)(gen)
     gen_model = Model([noise_in, embedding_in], new_img, name='Generator')
-    # gen_model.summary()
+    gen_model.summary()
     # noise, cats = generate_fake_images()
     # import time
     # start = time.time()
@@ -194,7 +195,7 @@ def createSnekMaker(
     # saveFakes(baby_noise)
     return gen_model#, baby_noise
 
-def generate_and_save_images(model, epoch, num_params=NUM_PARAMS, num_images=10):
+def generate_and_save_images(model, epoch, num_params=NUM_PARAMS, num_images=2):
     # Notice `training` is set to False.
     # This is so all layers run in inference mode (batchnorm)
     start = time.time()
@@ -216,56 +217,88 @@ def generate_and_save_images(model, epoch, num_params=NUM_PARAMS, num_images=10)
 
     print('Took ', time.time() - start, ' seconds')
 
+def discriminator_loss(real_output, fake_output):
+    real_loss = cross_entropy(tf.ones_like(real_output), real_output)
+    fake_loss = cross_entropy(tf.zeros_like(fake_output), fake_output)
+    total_loss = real_loss + fake_loss
+    return total_loss
+
+def generator_loss(fake_output):
+    return cross_entropy(tf.ones_like(fake_output), fake_output)
+
+# Notice the use of `tf.function`
+# This annotation causes the function to be "compiled".
+@tf.function
+def train_step(images, labels, generator, discriminator):
+    labels = tf.reshape(labels, (-1,))
+    images = tf.reshape(images, (-1, FINAL_IMG_SIZE, FINAL_IMG_SIZE, 3))
+    generated_noise_1, generated_labels_1 = generate_fake_images(images.shape[0])
+
+    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+      generated_images = generator([generated_noise_1, generated_labels_1], training=True)
+
+      real_output = discriminator([images, labels], training=True)
+      fake_output = discriminator([generated_images, generated_labels_1], training=True)
+
+      gen_loss = generator_loss(fake_output)
+      disc_loss = discriminator_loss(real_output, fake_output)
+
+    gradients_of_generator = gen_tape.gradient(gen_loss, generator.trainable_variables)
+    gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
+
+    generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
+    discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator.trainable_variables))
+
 def train(train_df, epochs, generator, discriminator, gan, checkpoint, checkpoint_prefix):
     for epoch in range(epochs):
         epoch += 1
 
         tot_gen_loss = 0
         tot_disc_loss = 0
-        data_len = math.ceil(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / 40)
+        data_len = math.ceil(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / TRAINING_BATCH_SIZE)
         dataset = make_dataset(train_df)
         for image_batch, image_labels in tqdm(
                 dataset,
                 desc='Epoch {}'.format(epoch),
                 total=data_len
         ):
-            # print(image_labels)
-            # image_labels = tf.reshape(image_labels, (TRAINING_BATCH_SIZE, 1))
-            # positive_labels = tf.ones_like(image_labels)
-            # print(positive_labels)
-            # print(image_labels)
+            # This is significantly faster than using train on batch because we don't have to
+            # double run discriminator
+            train_step(image_batch, image_labels, generator, discriminator)
+            # with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+            #
+            #     real_output = discriminator(
+            #         [image_batch, image_labels],
+            #         training=True
+            #     )
+            #
+            #     generated_noise_1, generated_labels_1 = generate_fake_images(image_batch.shape[0])
+            #     generated_images = generator([generated_noise_1, generated_labels_1], training=True)
+            #     fake_output = discriminator([generated_images, generated_labels_1], training=True)
+            #
+            #     gen_loss = generator_loss(fake_output)
+            #     disc_loss = discriminator_loss(real_output, fake_output)
+            #
+            # gradients_of_generator = gen_tape.gradient(gen_loss, generator.trainable_variables)
+            # gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
+            #
+            # generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
+            # discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator.trainable_variables))
 
-            image_labels = tf.reshape(image_labels, (-1,))
-            image_batch = tf.reshape(image_batch, (-1, IMG_SIZE, IMG_SIZE, 3))
-            disc_loss_1 = discriminator.train_on_batch(
-                [image_batch, image_labels],
-                tf.ones_like(image_labels)
-            )
-            generated_noise_1, generated_labels_1 = generate_fake_images(image_batch.shape[0])
-            generated_images = generator([generated_noise_1, generated_labels_1], training=True)
-            disc_loss_2 = discriminator.train_on_batch(
-                [generated_images, generated_labels_1],
-                tf.zeros_like(image_labels)
-            )
-            # generated_noise_2, generated_labels_2 = generate_fake_images()
-            # print(generated_noise, generated_labels)
-            gen_loss = gan.train_on_batch(
-                [generated_noise_1, generated_labels_1],
-                tf.ones_like(image_labels)
-            )
-            tot_gen_loss += gen_loss
-            tot_disc_loss += disc_loss_1 + disc_loss_2
             # Save the model every 15 epochs
+        # if epoch % 2 == 0:
+        checkpoint.save(file_prefix=checkpoint_prefix)
+
+        generator.save('Models/BIGGAN_Sneks.hdf5')
+
+        # if epoch % 2 == 1:
+        generate_and_save_images(generator,
+                                 epoch)
         print(tot_gen_loss / data_len, tot_disc_loss / data_len)
-        if epoch % 2 == 0:
-            checkpoint.save(file_prefix=checkpoint_prefix)
 
-        generator.save('Models/Mnist_CGAN.hdf5')
-
-        # if epoch % 5 == 1:
-        #     # Generate after the final epoch
-        #     generate_and_save_images(generator,
-        #                              epoch)
+    # Generate after the final epoch
+    generate_and_save_images(generator,
+                             'final')
 
 def make_gan(discriminator, generator):
     discriminator.trainable = False
@@ -357,7 +390,7 @@ def main(
         gan=gan
     )
     checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
-    checkpoint.save(file_prefix=checkpoint_prefix)
+    # checkpoint.save(file_prefix=checkpoint_prefix)
     # trainSnekMaker(
     #     train_datagen,
     #     check_model=snek_checker,
@@ -392,7 +425,7 @@ if __name__ == "__main__":
     if args.optimizer == 'adam':
         print('Using Adam optimizer')
         generator_optimizer = tf.keras.optimizers.Adam(5e-5, beta_1=0)
-        discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0)
+        discriminator_optimizer = tf.keras.optimizers.Adam(3e-4, beta_1=0)
     elif args.optimizer == 'nadam':
         print('Using Nadam optimizer')
         generator_optimizer = tf.keras.optimizers.Nadam(5e-5, beta_1=0)

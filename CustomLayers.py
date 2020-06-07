@@ -82,7 +82,7 @@ class Conv2D(layers.Conv2D):
         sigma = K.dot(sigma, K.transpose(_u))
         W_bar = W_reshaped / sigma
 
-        if training_value:
+        if not training_value:
             W_bar = K.reshape(W_bar, W_shape)
         else:
             with tf.control_dependencies([self.u.assign(_u)]):
@@ -162,7 +162,7 @@ class Dense(layers.Dense):
         sigma = K.dot(sigma, K.transpose(_u))
         W_bar = W_reshaped / sigma
 
-        if training_value:
+        if not training_value:
             W_bar = K.reshape(W_bar, W_shape)
         else:
             with tf.control_dependencies([self.u.assign(_u)]):
@@ -587,13 +587,15 @@ class CondBatchNorm(layers.BatchNormalization):
         self.moving_mean = self.add_weight(
             name='moving_mean',
             shape=[c],
-            initializer='zeros'
+            initializer='zeros',
+            trainable=False
         )
 
         self.moving_variance = self.add_weight(
             name='moving_variance',
             shape=[c],
-            initializer='ones'
+            initializer='ones',
+            trainable=False
         )
 
 
@@ -616,17 +618,11 @@ class CondBatchNorm(layers.BatchNormalization):
 
         if training_value:
             batch_mean, batch_var = tf.nn.moments(norm_t, [0, 1, 2], name='batchMoments')
+            test_mean = batch_mean * (1 - self.momentum) + (self.moving_mean * self.momentum)
+            test_var = batch_var * (1 - self.momentum) + (self.moving_variance * self.momentum)
             with tf.control_dependencies([
-                K.moving_average_update(
-                    self.moving_mean,
-                    batch_mean,
-                    self.momentum
-                ),
-                K.moving_average_update(
-                    self.moving_variance,
-                    batch_var,
-                    self.momentum
-                )
+                self.moving_mean.assign(test_mean),
+                self.moving_variance.assign(test_var)
             ]):
                 return tf.nn.batch_normalization(
                     norm_t,
